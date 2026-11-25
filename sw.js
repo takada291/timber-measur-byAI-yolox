@@ -1,10 +1,11 @@
-const CACHE_NAME = 'ai-log-detect-yolox-v0.2';
+const CACHE_NAME = 'ai-log-detect-yolox-v0.3';
 const PRECACHE_URLS = [
     './',
     './index.html',
     './manifest.json',
     './icon-512.png',
-    './yolox_tiny_log.onnx',
+    './yolox_s_log.onnx.part1',
+    './yolox_s_log.onnx.part2',
     'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/ort.wasm.min.js'
 ];
 
@@ -36,7 +37,7 @@ self.addEventListener('fetch', (event) => {
     const isSameOrigin = (url.origin === self.location.origin);
     const isOrtCdn = url.href.startsWith('https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/');
 
-    // 同一オリジン（HTML/ONNX等）および ONNX Runtime Web の WASM ファイルはキャッシュ優先
+    // 同一オリジン（HTML/分割ONNX等）および ONNX Runtime Web の WASM ファイルはキャッシュ優先
     if (isSameOrigin || isOrtCdn) {
         event.respondWith(
             caches.match(event.request).then((cached) => {
