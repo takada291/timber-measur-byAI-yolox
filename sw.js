@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ai-log-detect-yolox-v0.1';
+const CACHE_NAME = 'ai-log-detect-yolox-v0.2';
 const PRECACHE_URLS = [
     './',
     './index.html',
