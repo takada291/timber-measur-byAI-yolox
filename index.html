@@ -111,7 +111,7 @@
 
 <div class="card">
     <div class="header-area">
-        <h2>AI検知 <span style="font-size:0.8em; color:#2e7d32;">yolox-Ver0.2</span></h2>
+        <h2>AI検知 <span style="font-size:0.8em; color:#2e7d32;">yolox-Ver0.3</span></h2>
         <button class="settings-btn" onclick="openSettings()">⚙️ 設定</button>
     </div>
 
@@ -174,9 +174,9 @@
         <button class="btn btn-purple" id="btnRunGemini" onclick="runGeminiDetection()" style="margin-bottom: 0;">✨ Geminiで一括検知</button>
     </div>
 
-    <!-- ローカルONNX検知（YOLOX-Tiny / Apache-2.0 / 完全オフライン・上限1000本） -->
+    <!-- ローカルONNX検知（YOLOX-S / Apache-2.0 / 2分割結合・上限1000本） -->
     <div class="control-group" style="background: #e8f5e9; border-color: #81c784;">
-        <label class="control-label" style="color: #2e7d32;">🧠 AI丸太検知（YOLOX・オフライン高速・最大1000本）</label>
+        <label class="control-label" style="color: #2e7d32;">🧠 AI丸太検知（YOLOX-S・オフライン高速・最大1000本）</label>
         <button class="btn btn-teal" id="btnLoadModel" onclick="loadOnnxModel()" style="margin-bottom: 10px;">📥 認識モデル読込（事前キャッシュ用）</button>
         <div class="input-row" style="margin-bottom: 10px;">
             <label style="color: #2e7d32;">🎯 検出感度</label>
@@ -210,7 +210,7 @@
     <div style="text-align:right; margin-top:10px;">
         <button class="btn-del" style="background:#666; padding: 6px 12px;" onclick="handleAllClear()">全消去（材積内訳リセット）</button>
     </div>
-    <div class="license-note">ONNX Runtime Web (MIT) / YOLOX-Tiny Custom Model (Apache-2.0)</div>
+    <div class="license-note">ONNX Runtime Web (MIT) / YOLOX-S Custom Model (Apache-2.0)</div>
 </div>
 
 <!-- 過去の材積内訳リセット確認モーダル（はい / いいえ） -->
@@ -303,9 +303,12 @@
 
 <script>
     // ==========================================
-    // YOLOX-Tiny ONNX 推論設定（Apache-2.0 / 完全ローカル・APIキー不要）
+    // YOLOX-S ONNX 推論設定（Apache-2.0 / 2分割自動結合・完全ローカル）
     // ==========================================
-    const ONNX_MODEL_URL = './yolox_tiny_log.onnx';
+    const ONNX_MODEL_PARTS = [
+        './yolox_s_log.onnx.part1',
+        './yolox_s_log.onnx.part2'
+    ];
     const MODEL_INPUT_SIZE = 640;
     const IOU_THRESHOLD = 0.50;
     const MAX_OBJECTS = 1000;
@@ -820,8 +823,27 @@
     }
 
     // ==========================================
-    // ONNX Runtime Web ローカル推論エンジン（YOLOX-Tiny / Apache-2.0 / Stretch 640x640）
+    // ONNX Runtime Web ローカル推論エンジン（YOLOX-S / 2分割自動結合 / Stretch 640x640）
     // ==========================================
+    async function fetchAndMergeModelParts(urls) {
+        const buffers = await Promise.all(urls.map(async (url) => {
+            const res = await fetch(url);
+            if (!res.ok) {
+                throw new Error(`モデルファイル (${url}) が見つかりません (HTTP ${res.status})。GitHubへのアップロード完了後に再試行してください。`);
+            }
+            return await res.arrayBuffer();
+        }));
+
+        const totalLength = buffers.reduce((sum, buf) => sum + buf.byteLength, 0);
+        const merged = new Uint8Array(totalLength);
+        let offset = 0;
+        for (const buf of buffers) {
+            merged.set(new Uint8Array(buf), offset);
+            offset += buf.byteLength;
+        }
+        return merged;
+    }
+
     async function ensureOnnxSession() {
         if (ortSession) return ortSession;
         if (typeof ort === 'undefined') {
@@ -833,7 +855,8 @@
         ort.env.wasm.numThreads = 1;
         ort.env.wasm.simd = true;
 
-        ortSession = await ort.InferenceSession.create(ONNX_MODEL_URL, {
+        const modelBytes = await fetchAndMergeModelParts(ONNX_MODEL_PARTS);
+        ortSession = await ort.InferenceSession.create(modelBytes, {
             executionProviders: ['wasm'],
             graphOptimizationLevel: 'all'
         });
@@ -843,8 +866,8 @@
     async function loadOnnxModel() {
         const btn = document.getElementById('btnLoadModel');
         btn.disabled = true;
-        btn.innerText = "⏳ YOLOXモデル読込中...";
-        statusText.innerText = "リポジトリ内の認識モデル (yolox_tiny_log.onnx) を読み込んでいます...";
+        btn.innerText = "⏳ YOLOX-Sモデル結合・読込中...";
+        statusText.innerText = "分割モデル (part1 / part2) を結合して読み込んでいます...";
         statusText.style.color = "#00897b";
         
         try {
@@ -852,9 +875,9 @@
             await ensureOnnxSession();
             const sec = ((performance.now() - t0) / 1000).toFixed(2);
             
-            btn.innerText = "✅ 認識モデル準備完了 (YOLOX・上限1000本)";
+            btn.innerText = "✅ 認識モデル準備完了 (YOLOX-S・上限1000本)";
             btn.style.background = "#388e3c"; 
-            statusText.innerText = `YOLOX認識モデルの準備が完了しました（${sec}秒）。オフラインでも最大1000本まで検知可能です。`;
+            statusText.innerText = `YOLOX-S認識モデルの準備が完了しました（${sec}秒）。オフラインでも最大1000本まで検知可能です。`;
             statusText.style.color = "#2e7d32";
         } catch (error) {
             console.error(error);
@@ -867,7 +890,6 @@
     }
 
     // Stretch 640x640 全面展開 -> NCHW BGR FP32 (0.0〜255.0)
-    // v43データセット（640x640正方形）と見え方を揃え、小径木の解像度を最大化
     function preprocessImageToTensor(srcCanvas) {
         if (!prepCanvas) {
             prepCanvas = document.createElement('canvas');
@@ -975,7 +997,7 @@
         const btn = document.getElementById('btnRunRoboflow');
         btn.disabled = true;
         btn.innerText = "⏳ 読込・解析中...";
-        statusText.innerText = "内蔵YOLOXモデルで解析しています...";
+        statusText.innerText = "内蔵YOLOX-Sモデルで解析しています...";
         statusText.style.color = "#1565c0";
         
         resetDetection(); 
@@ -987,7 +1009,7 @@
             if (!ortSession) {
                 await ensureOnnxSession();
                 const loadBtn = document.getElementById('btnLoadModel');
-                loadBtn.innerText = "✅ 認識モデル準備完了 (YOLOX・上限1000本)";
+                loadBtn.innerText = "✅ 認識モデル準備完了 (YOLOX-S・上限1000本)";
                 loadBtn.style.background = "#388e3c";
                 loadBtn.disabled = true;
             }
@@ -1017,7 +1039,7 @@
             currentBoxes.forEach(b => drawBox(b, '#9932CC'));
             calibArea.style.display = "block";
             setBoxTapMode('select');
-            statusText.innerText = `✅ YOLOXで ${currentBoxes.length} 本検知しました（${elapsedSec}秒）。細かい箇所は「🔍 拡大」や「⚪️ 枠消しゴム」が使えます。`;
+            statusText.innerText = `✅ YOLOX-Sで ${currentBoxes.length} 本検知しました（${elapsedSec}秒）。細かい箇所は「🔍 拡大」や「⚪️ 枠消しゴム」が使えます。`;
             statusText.style.color = "#2e7d32";
 
         } catch (error) {
@@ -1251,7 +1273,7 @@
             }
 
             let vol = calculateVolume(estDia, length);
-            list.unshift({ id: Date.now() + Math.random(), tree: treeType, length: length, diameter: estDia, volume: vol, memo: 'AI推定(YOLOX)' });
+            list.unshift({ id: Date.now() + Math.random(), tree: treeType, length: length, diameter: estDia, volume: vol, memo: 'AI推定(YOLOX-S)' });
             
             addedCount++;
             addedVolume += vol; 
@@ -1450,7 +1472,7 @@
         const a = document.createElement("a");
         const now = new Date();
         a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-        a.download = `丸太検知-yolox-${now.getFullYear()}${(now.getMonth()+1).toString().padStart(2,'0')}${now.getDate().toString().padStart(2,'0')}-${now.getHours().toString().padStart(2,'0')}${now.getMinutes().toString().padStart(2,'0')}.csv`;
+        a.download = `丸太検知-yolox-s-${now.getFullYear()}${(now.getMonth()+1).toString().padStart(2,'0')}${now.getDate().toString().padStart(2,'0')}-${now.getHours().toString().padStart(2,'0')}${now.getMinutes().toString().padStart(2,'0')}.csv`;
         a.click();
     }
 </script>
