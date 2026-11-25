@@ -1,0 +1,1467 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AI検知</title>
+    
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#8b4513">
+    
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-title" content="AI検知">
+    <link rel="apple-touch-icon" href="icon-512.png">
+
+    <!-- ONNX Runtime Web (WASM版 / MITライセンス / 初回読込時にSWでオフラインキャッシュ) -->
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/ort.wasm.min.js"></script>
+
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-WXBP6CPKLP"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-WXBP6CPKLP');
+    </script>
+    
+    <style>
+        body { font-family: -apple-system, sans-serif; padding: 10px; background: #fdf5e6; color: #333; margin: 0; padding-bottom: 40px; }
+        .card { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .header-area { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #8b4513; margin-bottom: 10px; padding-bottom: 5px; }
+        h2 { margin: 0; font-size: 1.1em; color: #5d4037; }
+        .settings-btn { background: #6c757d; color: white; padding: 6px 12px; font-size: 0.85em; border-radius: 20px; border: none; cursor: pointer; touch-action: manipulation; }
+
+        .btn { display: block; width: 100%; padding: 12px; border: none; border-radius: 6px; font-weight: bold; font-size: 1rem; color: white; margin-bottom: 10px; cursor: pointer; text-align: center; box-sizing: border-box; touch-action: manipulation; }
+        .btn-blue { background: #1565c0; }
+        .btn-green { background: #2e7d32; }
+        .btn-purple { background: #673ab7; }
+        .btn-teal { background: #00897b; } 
+        .btn:disabled { background: #bdbdbd !important; cursor: not-allowed; }
+
+        .photo-buttons { display: flex; gap: 10px; margin-bottom: 10px; }
+        .photo-buttons label { flex: 1; margin-bottom: 0; }
+
+        /* iOS Safariでのボケ対策：will-change: transformを除外したシンプルな表示構成 */
+        #camera-container { position: relative; width: 100%; border-radius: 8px; overflow: hidden; background: #000; text-align: center; min-height: 220px; margin-bottom: 10px; }
+        canvas { max-width: 100%; height: auto; display: block; margin: 0 auto; touch-action: manipulation; cursor: crosshair; transform-origin: center center; }
+
+        /* 選択モード・枠消しゴム切り替えツールバー */
+        .toolbar { display: flex; gap: 6px; margin-bottom: 8px; }
+        .tool-btn { flex: 1; padding: 10px 4px; border: 2px solid #ccc; border-radius: 6px; background: #eee; text-align: center; font-weight: bold; font-size: 0.88em; cursor: pointer; user-select: none; touch-action: manipulation; }
+        .tool-btn.active-select { background: #f3e5f5; border-color: #673ab7; color: #4a148c; }
+        .tool-btn.active-eraser { background: #ffebee; border-color: #d32f2f; color: #c62828; }
+        .tool-btn.undo-btn { flex: 0.65; background: #fff3e0; border-color: #ffb74d; color: #e65100; }
+        .tool-btn.undo-btn:disabled { opacity: 0.4; cursor: not-allowed; background: #eee; border-color: #ccc; color: #999; }
+
+        /* 拡大・リセット・クリアの3ボタン行 */
+        .sub-toolbar { display: flex; gap: 6px; margin-bottom: 10px; }
+        .sub-btn { flex: 1; padding: 8px 4px; border: none; border-radius: 20px; font-weight: bold; font-size: 0.82em; color: white; cursor: pointer; user-select: none; touch-action: manipulation; text-align: center; }
+        .sub-btn-zoom { background: #1976d2; }
+        .sub-btn-zoom.zoom-active { background: #e65100; }
+        .sub-btn-reset { background: #d32f2f; }
+        .sub-btn-clear { background: #6c757d; }
+
+        /* 拡大パネル（＋ － ← → ↑ ↓） */
+        #zoom-controls { display: none; gap: 5px; margin-bottom: 12px; padding: 8px; background: #e3f2fd; border: 1px solid #90caf9; border-radius: 8px; }
+        .zoom-ctrl-btn { flex: 1; height: 42px; border: 1px solid #64b5f6; border-radius: 6px; background: #fff; color: #0d47a1; font-size: 1.15rem; font-weight: bold; cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: manipulation; display: flex; align-items: center; justify-content: center; padding: 0; }
+        .zoom-ctrl-btn:active { background: #bbdefb; transform: scale(0.96); }
+        .zoom-ctrl-btn.zoom-pm { background: #1565c0; color: #fff; border-color: #0d47a1; }
+        .zoom-ctrl-btn.zoom-pm:active { background: #0d47a1; }
+        
+        .control-group { margin-bottom: 15px; background: #fff3e0; padding: 10px; border-radius: 8px; border: 1px solid #ffcc80; }
+        .control-group.ai-group { background: #f3e5f5; border-color: #ce93d8; }
+        
+        label.control-label { font-weight: bold; font-size: 0.9em; display: block; margin-bottom: 5px; color: #5d4037;}
+        input[type="password"] { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 1rem; box-sizing: border-box; margin-bottom: 10px;}
+
+        #calibration-area { background: #fff3e0; padding: 12px; border-radius: 8px; margin-top: 15px; display: none; border: 2px solid #ffb74d; }
+        .calib-message { font-weight: bold; color: #e65100; margin: 0; font-size: 0.95em; line-height: 1.5; }
+        .input-row { margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;}
+        .input-row label { font-size: 0.9em; font-weight: bold; color: #5d4037; width: 32%;}
+        input[type="number"], select { width: 65%; padding: 10px; border: 1px solid #d7ccc8; border-radius: 6px; font-size: 16px; box-sizing: border-box; background: white; }
+
+        /* ポップアップ内の設定セクション用スタイル */
+        .modal-section { background: #fff8e1; border: 1px solid #ffe082; border-radius: 8px; padding: 12px; margin-bottom: 12px; text-align: left; }
+        .modal-section-dia { background: #fbe9e7; border: 2px solid #ffab91; border-radius: 8px; padding: 12px; margin-bottom: 15px; text-align: left; }
+        .modal-step-title { font-size: 0.9em; font-weight: bold; color: #5d4037; margin-bottom: 8px; display: block; }
+        .length-quick-btns { display: flex; gap: 6px; margin-top: 8px; }
+        .length-quick-btn { flex: 1; padding: 7px 0; background: #fff; border: 1px solid #bcaaa4; border-radius: 5px; font-weight: bold; font-size: 0.85rem; color: #5d4037; cursor: pointer; }
+        .length-quick-btn.active-len { background: #8d6e63; color: white; border-color: #5d4037; }
+
+        /* ２㎝括約チェックボックス用スタイル */
+        .round2cm-box { margin-top: 10px; padding: 9px 10px; background: #fff; border: 1px solid #ffab91; border-radius: 6px; }
+        .round2cm-label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: bold; font-size: 0.92em; color: #bf360c; margin: 0; }
+        .round2cm-checkbox { width: 18px; height: 18px; margin: 0; accent-color: #d84315; cursor: pointer; }
+        .round2cm-desc { display: block; font-size: 0.78em; font-weight: normal; color: #666; margin-top: 2px; padding-left: 26px; }
+
+        .summary-box { display: flex; justify-content: space-between; background: #efebe9; padding: 10px; border-radius: 8px; margin: 20px 0 10px; font-weight: bold; color: #5d4037; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        th, td { border: 1px solid #d7ccc8; padding: 8px 4px; text-align: center; }
+        th { background: #efebe9; }
+        .btn-del { background: #d32f2f; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; }
+        .export-btn { width: 100%; background: #388e3c; color: white; padding: 12px; border: none; border-radius: 6px; margin-top: 10px; font-size: 1rem; font-weight: bold; cursor: pointer; }
+
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.55); z-index: 99; overflow-y: auto; }
+        .modal-content { background: white; margin: 8% auto; padding: 18px; width: 90%; max-width: 400px; border-radius: 12px; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.2); box-sizing: border-box; }
+        .close-btn { background: #666; color: white; width: 100%; padding: 10px; border: none; border-radius: 6px; margin-top: 15px; cursor: pointer; }
+        .license-note { text-align: center; font-size: 0.72em; color: #8d6e63; margin-top: 8px; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <div class="header-area">
+        <h2>AI検知 <span style="font-size:0.8em; color:#2e7d32;">yolox-Ver0.1</span></h2>
+        <button class="settings-btn" onclick="openSettings()">⚙️ 設定</button>
+    </div>
+
+    <!-- 静止画の撮影・選択 -->
+    <div class="photo-buttons">
+        <label class="btn btn-blue">
+            📸 写真を撮る
+            <input type="file" id="imageInputCamera" accept="image/*" capture="environment" style="display: none;">
+        </label>
+        <label class="btn btn-blue" style="background-color: #0288d1;">
+            🖼️ 写真を選ぶ
+            <input type="file" id="imageInputFile" accept="image/*" style="display: none;">
+        </label>
+    </div>
+
+    <div id="status-text" style="color: #d32f2f; font-weight: bold; margin-bottom: 10px; text-align: center;">
+        1. 写真を読み込んでください
+    </div>
+
+    <div id="camera-container">
+        <canvas id="mainCanvas"></canvas>
+    </div>
+
+    <!-- 1行目：基準枠選択・枠消しゴム・戻す -->
+    <div class="toolbar">
+        <div class="tool-btn active-select" id="tool-select" onclick="setBoxTapMode('select')">👆 基準枠を選択</div>
+        <div class="tool-btn" id="tool-eraser" onclick="setBoxTapMode('eraser')">⚪️ 枠消しゴム</div>
+        <button class="tool-btn undo-btn" id="btnUndoBox" onclick="undoDeleteBox()" disabled>↩️ 戻す</button>
+    </div>
+
+    <!-- 2行目：拡大（戻す）・内訳リセット・枠クリア -->
+    <div class="sub-toolbar">
+        <button class="sub-btn sub-btn-zoom" id="btnToggleZoom" onclick="toggleZoomMode()">🔍 拡大</button>
+        <button class="sub-btn sub-btn-reset" onclick="handleAllClear()">🗑️ 内訳リセット</button>
+        <button class="sub-btn sub-btn-clear" onclick="resetDetection()">🔄 枠全クリア</button>
+    </div>
+
+    <!-- 3行目：拡大操作パネル（拡大ボタンを押した時のみ表示） -->
+    <div id="zoom-controls">
+        <button type="button" class="zoom-ctrl-btn zoom-pm" onclick="adjustZoom(0.4)" aria-label="拡大">＋</button>
+        <button type="button" class="zoom-ctrl-btn zoom-pm" onclick="adjustZoom(-0.4)" aria-label="縮小">－</button>
+        <button type="button" class="zoom-ctrl-btn" data-pan="left" aria-label="左へ移動">←</button>
+        <button type="button" class="zoom-ctrl-btn" data-pan="right" aria-label="右へ移動">→</button>
+        <button type="button" class="zoom-ctrl-btn" data-pan="up" aria-label="上へ移動">↑</button>
+        <button type="button" class="zoom-ctrl-btn" data-pan="down" aria-label="下へ移動">↓</button>
+    </div>
+
+    <!-- クラウド検知（機能は温存し、display: none; で画面から非表示） -->
+    <div class="control-group ai-group" style="display: none;">
+        <label class="control-label" style="color: #4a148c;">🤖 Geminiで検知（オンライン高精度）</label>
+        <input type="password" id="geminiApiKey" placeholder="Gemini APIキー (初回のみ)">
+        <div class="input-row" style="margin-bottom: 10px;">
+            <label style="color: #4a148c;">🧠 思考レベル</label>
+            <select id="thinkingLevelSelect" style="padding: 8px; font-size: 0.95rem; border-color: #ce93d8;">
+                <option value="LOW" selected>Low (高速・推奨)</option>
+                <option value="MEDIUM">Medium (標準バランス)</option>
+                <option value="HIGH">High (高精度・じっくり)</option>
+            </select>
+        </div>
+        <button class="btn btn-purple" id="btnRunGemini" onclick="runGeminiDetection()" style="margin-bottom: 0;">✨ Geminiで一括検知</button>
+    </div>
+
+    <!-- ローカルONNX検知（YOLOX-Tiny / Apache-2.0 / 完全オフライン・上限1000本） -->
+    <div class="control-group" style="background: #e8f5e9; border-color: #81c784;">
+        <label class="control-label" style="color: #2e7d32;">🧠 AI丸太検知（YOLOX・オフライン高速・最大1000本）</label>
+        <button class="btn btn-teal" id="btnLoadModel" onclick="loadOnnxModel()" style="margin-bottom: 10px;">📥 認識モデル読込（事前キャッシュ用）</button>
+        <div class="input-row" style="margin-bottom: 10px;">
+            <label style="color: #2e7d32;">🎯 検出感度</label>
+            <select id="rfThresholdSelect" style="padding: 8px; font-size: 0.95rem; border-color: #81c784;">
+                <option value="0.25">甘め・多めに検出 (25%以上)</option>
+                <option value="0.40" selected>標準バランス (40%以上)</option>
+                <option value="0.60">厳しめ・確実のみ (60%以上)</option>
+            </select>
+        </div>
+        <button class="btn btn-green" id="btnRunRoboflow" onclick="runOnnxDetection()" style="margin-bottom: 0;">⚡ AIで一括検知</button>
+    </div>
+
+    <!-- キャリブレーション案内 -->
+    <div id="calibration-area">
+        <p class="calib-message" id="calibMsg">✅ 丸太を検知しました。<br>画面内の基準となる丸太の枠を<b>直接タップ</b>してください。</p>
+    </div>
+</div>
+
+<div class="card">
+    <div class="summary-box">
+        <div>本数: <span id="totalCount">0</span> 本</div>
+        <div>材積: <span id="totalVolume">0.000</span> m3</div>
+    </div>
+    <div class="table-container">
+        <table id="dataTable">
+            <thead><tr><th>樹種</th><th>長</th><th>径</th><th>材積</th><th>操作</th></tr></thead>
+            <tbody></tbody>
+        </table>
+    </div>
+    <button class="export-btn" onclick="handleExport()">CSV出力</button>
+    <div style="text-align:right; margin-top:10px;">
+        <button class="btn-del" style="background:#666; padding: 6px 12px;" onclick="handleAllClear()">全消去（材積内訳リセット）</button>
+    </div>
+    <div class="license-note">ONNX Runtime Web (MIT) / YOLOX-Tiny Custom Model (Apache-2.0)</div>
+</div>
+
+<!-- 過去の材積内訳リセット確認モーダル（はい / いいえ） -->
+<div id="resetConfirmModal" class="modal">
+    <div class="modal-content">
+        <h3 style="margin-top:0; color:#d32f2f;">⚠️ 材積内訳のリセット確認</h3>
+        <p style="font-size:0.95em; margin-bottom:20px; line-height:1.5;">
+            過去の材積内訳（明細データ <span id="existingDataCount" style="font-weight:bold; color:#d32f2f;">0</span> 本）が残っています。<br>
+            <b>リセットしてよろしいですか？</b>
+        </p>
+        <div style="display:flex; gap:10px;">
+            <button id="btnResetYes" class="btn-green" style="flex:1; padding:12px; font-size:1rem; border:none; border-radius:6px; color:white; font-weight:bold; cursor:pointer;" onclick="resolveResetModal(true)">はい (リセット)</button>
+            <button id="btnResetNo" class="btn-del" style="flex:1; padding:12px; font-size:1rem; background:#757575;" onclick="resolveResetModal(false)">いいえ (合算)</button>
+        </div>
+    </div>
+</div>
+
+<!-- 設定モーダル -->
+<div id="settingsModal" class="modal">
+    <div class="modal-content">
+        <div class="header-area"><h3>設定</h3></div>
+        <label style="display:block; margin-bottom:10px; font-weight:bold; color:#5d4037; text-align:left;">追加樹種 (最大5つ)</label>
+        <div id="customTreeInputs"></div>
+        <button class="export-btn" onclick="saveSettings()" style="margin-top:15px; background:#5d4037;">設定保存</button>
+        <button class="close-btn" onclick="closeSettings()">閉じる</button>
+    </div>
+</div>
+
+<!-- 樹種・材長・基準直径・２㎝括約を1画面で設定するポップアップモーダル -->
+<div id="diameterModal" class="modal">
+    <div class="modal-content">
+        <h3 id="diaModalTitle" style="margin-top:0; margin-bottom:12px; color:#e65100;">一括設定 ＆ 基準サイズ入力</h3>
+
+        <!-- ステップ1：樹種と材長の設定 -->
+        <div class="modal-section">
+            <span class="modal-step-title">① 全体の樹種・材長を確認</span>
+            <div class="input-row" style="margin-bottom: 10px;">
+                <label style="width: 30%;">🌲 樹種</label>
+                <select id="m_treeType" class="tree-selector" style="width: 68%; font-weight: bold;"></select>
+            </div>
+            <div class="input-row" style="margin-bottom: 4px;">
+                <label style="width: 30%;">📏 材長(m)</label>
+                <input type="number" id="m_length" value="4" step="0.1" min="0.5" style="width: 68%; font-weight: bold;" oninput="syncQuickLengthButtons()">
+            </div>
+            <div class="length-quick-btns">
+                <button type="button" class="length-quick-btn" onclick="setQuickLength(2)">2m</button>
+                <button type="button" class="length-quick-btn" onclick="setQuickLength(3)">3m</button>
+                <button type="button" class="length-quick-btn active-len" onclick="setQuickLength(4)">4m</button>
+                <button type="button" class="length-quick-btn" onclick="setQuickLength(6)">6m</button>
+            </div>
+        </div>
+
+        <!-- ステップ2：基準丸太の末口直径 ＋ ２㎝括約 -->
+        <div class="modal-section-dia">
+            <span class="modal-step-title" style="color:#d84315;">② タップした基準丸太の末口直径(cm)</span>
+            <select id="diaSelect" style="margin-bottom:6px; font-size:1.2rem; font-weight:bold; padding:10px; width:100%; border-color:#ffab91;"></select>
+            <div id="manualDiaDiv" style="display:none; margin-top:6px;">
+                <input type="number" id="manualDiaInput" placeholder="直径を手入力 (cm)" style="font-size:1.2rem; padding:10px; width:100%;">
+            </div>
+
+            <!-- ２㎝括約チェックボックス（デフォルトON） -->
+            <div class="round2cm-box">
+                <label class="round2cm-label">
+                    <input type="checkbox" id="round2cmCheck" class="round2cm-checkbox" checked>
+                    <span>２㎝括約（2cm単位で切り捨て）</span>
+                </label>
+                <span class="round2cm-desc">※短径（枠の縦横で短い方）から末口を算出します</span>
+            </div>
+        </div>
+
+        <div style="display:flex; gap:10px;">
+            <button class="btn-del" style="flex:1; padding:12px; font-size:1rem; background:#757575;" onclick="closeDiaModal()">キャンセル</button>
+            <button class="btn-green" style="flex:1.3; padding:12px; font-size:1rem; margin-bottom:0; border:none; border-radius:6px; color:white; font-weight:bold; cursor:pointer;" onclick="confirmDiameter()">決定 (一括計算)</button>
+        </div>
+    </div>
+</div>
+
+<!-- 保存プレビューモーダル -->
+<div id="savePreviewModal" class="modal">
+    <div class="modal-content" style="margin: 5% auto;">
+        <h3 style="margin-top:0; color:#1565c0;">📸 保存プレビュー</h3>
+        <p style="font-size:0.8em; color:#666;">撮影日時・GPS・検知結果付き</p>
+        <img id="previewImg" style="width:100%; border-radius:8px; border:2px solid #ccc; margin-bottom:10px;">
+        <div style="display:flex; gap:10px; margin-top:10px;">
+            <button class="btn-del" style="flex:1; padding:10px; background:#666;" onclick="closeSaveModal()">閉じる</button>
+            <button class="btn-orange" style="flex:1; padding:10px; margin-bottom:0; background:#e65100; color:white; border:none; border-radius:6px; font-weight:bold; cursor:pointer;" onclick="downloadImage()">💾 共有 / 保存</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ==========================================
+    // YOLOX-Tiny ONNX 推論設定（Apache-2.0 / 完全ローカル・APIキー不要）
+    // ==========================================
+    const ONNX_MODEL_URL = './yolox_tiny_log.onnx';
+    const MODEL_INPUT_SIZE = 640;
+    const IOU_THRESHOLD = 0.50;
+    const MAX_OBJECTS = 1000;
+    const ORT_WASM_CDN = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/';
+
+    // Gemini機能（非表示のまま温存）
+    const MODEL_CANDIDATES = ["gemini-4-hydrogen", "gemini-3.8-flash", "gemini-2.5-flash"];
+    // ==========================================
+
+    // 既存アプリ（timber_doubsta_data）のデータを汚さないよう実験用キーを分離
+    // ※本番リポジトリへ統合する際は 'timber_doubsta_data' へ戻してください
+    const STORAGE_KEY = 'timber_yolox_test_data';
+    const SETTINGS_KEY = 'timber_doubsta_settings';
+    const LAST_PARAMS_KEY = 'timber_doubsta_last_params';
+    const DEFAULT_TREES = ['スギ', 'ヒノキ', '他針', '他広'];
+    let currentSettings = { customTrees: [] };
+    
+    const canvas = document.getElementById('mainCanvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const statusText = document.getElementById('status-text');
+    const calibArea = document.getElementById('calibration-area');
+    
+    let originalImage = null; 
+    let ortSession = null;
+    let prepCanvas = null;
+    let currentBoxes = []; 
+    let deletedBoxesHistory = [];
+    let boxTapMode = 'select';    
+    let isCalculated = false; 
+    let selectedBoxForCalc = null;
+    let previewDataUrl = null; 
+    let resetModalCallback = null;
+
+    // 拡大・移動（ズーム＆パン）制御変数
+    let isZoomPanelOpen = false;
+    let zoomScale = 1.0;
+    let panX = 0;
+    let panY = 0;
+    let panRepeatTimer = null;
+
+    // なぞり消し・タップ判定用ポインタ制御変数
+    let isPointerDown = false;
+    let activePointerId = null;
+    let pointerDownClientX = 0;
+    let pointerDownClientY = 0;
+    let lastEraseCanvasPos = null;
+    let currentEraseStroke = [];
+
+    window.onload = function() {
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('./sw.js').catch(err => console.log('SW fail', err));
+        }
+        const container = document.getElementById('customTreeInputs');
+        for(let i=1; i<=5; i++){
+            container.innerHTML += `<input type="text" id="customTree${i}" placeholder="追加${i}" style="margin-bottom:5px; width:100%; padding:8px; box-sizing:border-box;">`;
+        }
+        initDiameterDropdown();
+        initPanButtons();
+        loadSettings();
+        loadLastParams();
+        renderTable();
+        
+        const savedKey = localStorage.getItem('gemini_api_key_ai');
+        if (savedKey) document.getElementById('geminiApiKey').value = savedKey;
+    };
+
+    function initDiameterDropdown() {
+        const diaSelect = document.getElementById('diaSelect');
+        for(let i=10; i<=60; i+=2) { diaSelect.appendChild(new Option(`${i} cm`, i)); }
+        diaSelect.appendChild(new Option('その他 (手入力)', 'manual'));
+        diaSelect.value = "24";
+        diaSelect.addEventListener('change', (e) => {
+            document.getElementById('manualDiaDiv').style.display = e.target.value === 'manual' ? 'block' : 'none';
+        });
+    }
+
+    // ==========================================
+    // 拡大・縮小・矢印移動ロジック
+    // ==========================================
+    function toggleZoomMode() {
+        if (!originalImage) return alert("先に写真を読み込んでください");
+        if (!isZoomPanelOpen) {
+            isZoomPanelOpen = true;
+            zoomScale = 1.8;
+            panX = 0;
+            panY = 0;
+            applyZoomTransform();
+            document.getElementById('zoom-controls').style.display = 'flex';
+            const btn = document.getElementById('btnToggleZoom');
+            btn.innerText = "🔍 戻す";
+            btn.classList.add('zoom-active');
+        } else {
+            resetZoom();
+        }
+    }
+
+    function resetZoom() {
+        stopPanRepeat();
+        isZoomPanelOpen = false;
+        zoomScale = 1.0;
+        panX = 0;
+        panY = 0;
+        applyZoomTransform();
+        document.getElementById('zoom-controls').style.display = 'none';
+        const btn = document.getElementById('btnToggleZoom');
+        btn.innerText = "🔍 拡大";
+        btn.classList.remove('zoom-active');
+    }
+
+    function adjustZoom(delta) {
+        if (!originalImage) return;
+        zoomScale = Math.max(1.0, Math.min(4.0, Math.round((zoomScale + delta) * 10) / 10));
+        clampPan();
+        applyZoomTransform();
+    }
+
+    function panView(direction) {
+        if (!originalImage || zoomScale <= 1.0) return;
+        const baseW = canvas.offsetWidth || 300;
+        const baseH = canvas.offsetHeight || 225;
+        const stepX = Math.max(36, baseW * 0.16);
+        const stepY = Math.max(36, baseH * 0.16);
+
+        if (direction === 'left')  panX += stepX;
+        if (direction === 'right') panX -= stepX;
+        if (direction === 'up')    panY += stepY;
+        if (direction === 'down')  panY -= stepY;
+
+        clampPan();
+        applyZoomTransform();
+    }
+
+    function clampPan() {
+        const baseW = canvas.offsetWidth || 0;
+        const baseH = canvas.offsetHeight || 0;
+        const maxPanX = Math.max(0, (baseW * zoomScale - baseW) / 2);
+        const maxPanY = Math.max(0, (baseH * zoomScale - baseH) / 2);
+        panX = Math.max(-maxPanX, Math.min(maxPanX, panX));
+        panY = Math.max(-maxPanY, Math.min(maxPanY, panY));
+    }
+
+    function applyZoomTransform() {
+        if (zoomScale <= 1.0) {
+            canvas.style.transform = '';
+        } else {
+            canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomScale})`;
+        }
+    }
+
+    function stopPanRepeat() {
+        if (panRepeatTimer) {
+            clearInterval(panRepeatTimer);
+            panRepeatTimer = null;
+        }
+    }
+
+    function initPanButtons() {
+        document.querySelectorAll('[data-pan]').forEach(btn => {
+            const dir = btn.getAttribute('data-pan');
+            btn.addEventListener('pointerdown', (e) => {
+                e.preventDefault();
+                panView(dir);
+                stopPanRepeat();
+                panRepeatTimer = setInterval(() => panView(dir), 110);
+            });
+            btn.addEventListener('pointerup', stopPanRepeat);
+            btn.addEventListener('pointerleave', stopPanRepeat);
+            btn.addEventListener('pointercancel', stopPanRepeat);
+            btn.addEventListener('contextmenu', (e) => e.preventDefault());
+        });
+    }
+
+    // 材長クイックボタン制御と前回値の保存・復元
+    function setQuickLength(len) {
+        document.getElementById('m_length').value = len;
+        syncQuickLengthButtons();
+    }
+
+    function syncQuickLengthButtons() {
+        const currentLen = parseFloat(document.getElementById('m_length').value);
+        document.querySelectorAll('.length-quick-btn').forEach(btn => {
+            const btnLen = parseFloat(btn.innerText);
+            if (btnLen === currentLen) {
+                btn.classList.add('active-len');
+            } else {
+                btn.classList.remove('active-len');
+            }
+        });
+    }
+
+    function saveLastParams(treeType, length, diaSelectVal, useRound2cm) {
+        localStorage.setItem(LAST_PARAMS_KEY, JSON.stringify({
+            tree: treeType,
+            length: length,
+            dia: diaSelectVal,
+            round2cm: useRound2cm
+        }));
+    }
+
+    function loadLastParams() {
+        try {
+            const saved = JSON.parse(localStorage.getItem(LAST_PARAMS_KEY) || 'null');
+            if (!saved) return;
+            const treeSelect = document.getElementById('m_treeType');
+            if (saved.tree && Array.from(treeSelect.options).some(o => o.value === saved.tree)) {
+                treeSelect.value = saved.tree;
+            }
+            if (saved.length) {
+                document.getElementById('m_length').value = saved.length;
+                syncQuickLengthButtons();
+            }
+            if (saved.dia && saved.dia !== 'manual') {
+                document.getElementById('diaSelect').value = saved.dia;
+            }
+            if (typeof saved.round2cm === 'boolean') {
+                document.getElementById('round2cmCheck').checked = saved.round2cm;
+            }
+        } catch (e) {
+            console.log('Param load skip', e);
+        }
+    }
+
+    // ==========================================
+    // 基準枠選択 / 枠消しゴム モード切替とUndo処理
+    // ==========================================
+    function setBoxTapMode(mode) {
+        boxTapMode = mode;
+        const btnSelect = document.getElementById('tool-select');
+        const btnEraser = document.getElementById('tool-eraser');
+
+        if (mode === 'eraser') {
+            btnSelect.classList.remove('active-select');
+            btnEraser.classList.add('active-eraser');
+            canvas.style.touchAction = 'none';
+            if (currentBoxes.length > 0 && !isCalculated) {
+                statusText.innerText = `⚪️ 消しゴムモード（残り ${currentBoxes.length} 本）：タップまたは指でなぞって消去できます`;
+                statusText.style.color = "#d32f2f";
+                document.getElementById('calibMsg').innerHTML = `⚪️ <b>枠消しゴムモード中</b>（現在 <b>${currentBoxes.length} 本</b>）<br>不要な枠をタップ、または<b>指でなぞって一括消去</b>できます。終わったら「👆 基準枠を選択」に戻してください。`;
+            }
+        } else {
+            btnEraser.classList.remove('active-eraser');
+            btnSelect.classList.add('active-select');
+            canvas.style.touchAction = 'manipulation';
+            if (currentBoxes.length > 0 && !isCalculated) {
+                statusText.innerText = `✅ 現在 ${currentBoxes.length} 本：基準となる丸太の枠をタップしてください`;
+                statusText.style.color = "#2e7d32";
+                document.getElementById('calibMsg').innerHTML = `✅ 丸太を検知しました（<b>${currentBoxes.length} 本</b>）。<br>画面内の基準となる丸太の枠を<b>直接タップ</b>すると、樹種・材長・直径の入力画面が開きます。`;
+            }
+        }
+    }
+
+    function undoDeleteBox() {
+        if (deletedBoxesHistory.length === 0 || isCalculated) return;
+        const lastStroke = deletedBoxesHistory.pop();
+        const restoredCount = Array.isArray(lastStroke) ? lastStroke.length : 1;
+        if (Array.isArray(lastStroke)) {
+            currentBoxes.push(...lastStroke);
+        } else {
+            currentBoxes.push(lastStroke);
+        }
+        document.getElementById('btnUndoBox').disabled = (deletedBoxesHistory.length === 0);
+
+        restoreCleanImage();
+        currentBoxes.forEach(b => drawBox(b, '#9932CC'));
+
+        if (boxTapMode === 'eraser') {
+            statusText.innerText = `↩️ ${restoredCount}本を元に戻しました（残り ${currentBoxes.length} 本）`;
+            statusText.style.color = "#e65100";
+            document.getElementById('calibMsg').innerHTML = `⚪️ <b>枠消しゴムモード中</b>（現在 <b>${currentBoxes.length} 本</b>）<br>不要な枠をタップ、または<b>指でなぞって一括消去</b>できます。終わったら「👆 基準枠を選択」に戻してください。`;
+        } else {
+            statusText.innerText = `↩️ ${restoredCount}本を元に戻しました（現在 ${currentBoxes.length} 本）。基準枠をタップしてください。`;
+            statusText.style.color = "#2e7d32";
+            document.getElementById('calibMsg').innerHTML = `✅ 丸太を検知しました（<b>${currentBoxes.length} 本</b>）。<br>画面内の基準となる丸太の枠を<b>直接タップ</b>すると、樹種・材長・直径の入力画面が開きます。`;
+        }
+    }
+
+    // ==========================================
+    // 専用リセット確認モーダル制御（はいがデフォルト）
+    // ==========================================
+    function askResetIfNeeded() {
+        return new Promise((resolve) => {
+            const list = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+            if (list.length === 0) {
+                resolve(false);
+                return;
+            }
+            document.getElementById('existingDataCount').innerText = list.length;
+            const modal = document.getElementById('resetConfirmModal');
+            modal.style.display = 'block';
+            document.getElementById('btnResetYes').focus();
+            resetModalCallback = resolve;
+        });
+    }
+
+    function resolveResetModal(shouldReset) {
+        document.getElementById('resetConfirmModal').style.display = 'none';
+        if (shouldReset) {
+            localStorage.removeItem(STORAGE_KEY);
+            renderTable();
+        }
+        if (resetModalCallback) {
+            const cb = resetModalCallback;
+            resetModalCallback = null;
+            cb(shouldReset);
+        }
+    }
+
+    // ==========================================
+    // 画像読み込み処理
+    // ==========================================
+    function handleImageUpload(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            const img = new Image();
+            img.onload = async function() {
+                const maxWidth = 1280;
+                let width = img.width;
+                let height = img.height;
+                if (width > maxWidth) {
+                    height = Math.floor(height * (maxWidth / width));
+                    width = maxWidth;
+                }
+                resetZoom();
+                canvas.width = width;
+                canvas.height = height;
+                document.getElementById('camera-container').style.minHeight = 'auto';
+
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+                ctx.drawImage(img, 0, 0, width, height);
+                originalImage = ctx.getImageData(0, 0, width, height);
+
+                // iOS Safariで縦持ち読込時に描画バッファを確実に最新解像度へ更新
+                canvas.style.display = 'none';
+                void canvas.offsetHeight;
+                canvas.style.display = 'block';
+                
+                resetDetection(); 
+                statusText.innerText = "2. 「AIで一括検知」を実行してください";
+                statusText.style.color = "#1565c0";
+
+                await askResetIfNeeded();
+            }
+            img.src = event.target.result;
+        }
+        reader.readAsDataURL(file);
+        
+        e.target.value = '';
+    }
+    
+    document.getElementById('imageInputCamera').addEventListener('change', handleImageUpload);
+    document.getElementById('imageInputFile').addEventListener('change', handleImageUpload);
+
+    function restoreCleanImage() {
+        if(originalImage) ctx.putImageData(originalImage, 0, 0);
+    }
+
+    function resetDetection() {
+        resetZoom();
+        restoreCleanImage();
+        currentBoxes = [];
+        deletedBoxesHistory = [];
+        currentEraseStroke = [];
+        isPointerDown = false;
+        document.getElementById('btnUndoBox').disabled = true;
+        isCalculated = false;
+        calibArea.style.display = "none";
+        setBoxTapMode('select');
+        if(originalImage) {
+            statusText.innerText = "2. 「AIで一括検知」を実行してください";
+            statusText.style.color = "#1565c0";
+        }
+    }
+
+    // ==========================================
+    // Gemini API 呼び出し共通基盤（非表示だが温存）
+    // ==========================================
+    async function fetchWithTimeout(url, options, timeoutMs = 120000) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            return await fetch(url, { ...options, signal: controller.signal });
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
+    async function callGeminiWithFallback(apiKey, basePayload, onStatusUpdate) {
+        let lastErrorMsg = "";
+        const selectedThinkingLevel = document.getElementById('thinkingLevelSelect')?.value || "LOW";
+
+        for (const modelName of MODEL_CANDIDATES) {
+            if (onStatusUpdate) onStatusUpdate(`${modelName} (${selectedThinkingLevel})`);
+            const supportsThinking = modelName.startsWith("gemini-4") || modelName.startsWith("gemini-3");
+            const payloadWithThinking = JSON.parse(JSON.stringify(basePayload));
+            if (supportsThinking) {
+                payloadWithThinking.generationConfig = {
+                    ...(payloadWithThinking.generationConfig || {}),
+                    thinkingConfig: { thinkingLevel: selectedThinkingLevel }
+                };
+            }
+            try {
+                let response = await fetchWithTimeout(
+                    `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`,
+                    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payloadWithThinking) },
+                    120000
+                );
+                let data = await response.json();
+                if (data.error && response.status === 400 && supportsThinking) {
+                    response = await fetchWithTimeout(
+                        `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`,
+                        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(basePayload) },
+                        120000
+                    );
+                    data = await response.json();
+                }
+                if (data.error) {
+                    lastErrorMsg = `[${modelName}] ${data.error.message}`;
+                    continue;
+                }
+                if (data.candidates && data.candidates[0] && data.candidates[0].content) {
+                    const parts = data.candidates[0].content.parts || [];
+                    const answerPart = parts.find(p => typeof p.text === 'string' && !p.thought) || parts.find(p => typeof p.text === 'string');
+                    if (answerPart) {
+                        return { text: answerPart.text, usedModel: `${modelName} [思考:${selectedThinkingLevel}]` };
+                    }
+                }
+            } catch (err) {
+                lastErrorMsg = `[${modelName}] ${err.name === 'AbortError' ? 'タイムアウト(120秒超過)' : err.message}`;
+            }
+        }
+        throw new Error(lastErrorMsg || "AIモデルでの通信に失敗しました。APIキーをご確認ください。");
+    }
+
+    async function runGeminiDetection() {
+        if (!originalImage) return alert("先に写真を読み込んでください");
+        const apiKey = document.getElementById('geminiApiKey').value.trim();
+        if (!apiKey) return alert("Gemini APIキーを入力してください");
+        
+        localStorage.setItem('gemini_api_key_ai', apiKey);
+
+        await askResetIfNeeded();
+        
+        const btn = document.getElementById('btnRunGemini');
+        btn.disabled = true;
+        btn.innerText = "⏳ Geminiで解析中...";
+        statusText.style.color = "#673ab7";
+        
+        resetDetection(); 
+
+        try {
+            const base64Image = canvas.toDataURL("image/jpeg", 0.8).split(',')[1];
+            const promptText = `
+                添付された画像内の「すべての丸太の断面（木口）」を検出し、それぞれのバウンディングボックス（囲み枠）を以下のJSON形式で出力してください。
+                【重要】
+                ・座標（ymin, xmin, ymax, xmax）は画像の幅と高さを1.0とした割合（0.0〜1.0の数値）で記述してください。
+                ・Markdownブロック（\`\`\`json など）は絶対に含めず、純粋なJSON文字列のみを出力してください。
+                {
+                  "logs": [
+                    {"ymin": 0.123, "xmin": 0.456, "ymax": 0.234, "xmax": 0.567}
+                  ]
+                }
+            `;
+
+            const payload = {
+                contents: [{ parts: [{ text: promptText }, { inlineData: { data: base64Image, mimeType: "image/jpeg" } }] }],
+                generationConfig: { response_mime_type: "application/json" }
+            };
+
+            const res = await callGeminiWithFallback(apiKey, payload, (modelStatus) => {
+                statusText.innerText = `🤖 ${modelStatus} で丸太を検出中...`;
+            });
+
+            const cleanText = res.text.replace(/```json/g, '').replace(/```/g, '').trim();
+            const jsonResponse = JSON.parse(cleanText);
+
+            if (!jsonResponse || !jsonResponse.logs) {
+                throw new Error("AIから正しい座標データが返ってきませんでした。");
+            }
+
+            const w = canvas.width;
+            const h = canvas.height;
+            ctx.font = '16px Arial';
+            currentBoxes = jsonResponse.logs.map(log => {
+                const boxY = log.ymin * h;
+                const boxX = log.xmin * w;
+                const boxH = (log.ymax - log.ymin) * h;
+                const boxW = (log.xmax - log.xmin) * w;
+                const text = "Gemini";
+                const textWidth = ctx.measureText(text).width;
+                return { x: boxX, y: boxY, w: boxW, h: boxH, text: text, textWidth: textWidth };
+            });
+
+            currentBoxes.forEach(b => drawBox(b, '#9932CC'));
+            calibArea.style.display = "block";
+            setBoxTapMode('select');
+            statusText.innerText = `✅ ${res.usedModel} で ${currentBoxes.length} 本検知しました。不要な枠は「枠消しゴム」で消去できます。`;
+            statusText.style.color = "#2e7d32";
+
+        } catch (error) {
+            console.error(error);
+            alert('AI通信エラー: ' + error.message);
+            statusText.innerText = "エラーが発生しました: " + error.message;
+            statusText.style.color = "#d32f2f";
+        } finally {
+            btn.disabled = false;
+            btn.innerText = "✨ Geminiで一括検知";
+        }
+    }
+
+    // ==========================================
+    // ONNX Runtime Web ローカル推論エンジン（YOLOX-Tiny / Apache-2.0 / 上限1000本）
+    // ==========================================
+    async function ensureOnnxSession() {
+        if (ortSession) return ortSession;
+        if (typeof ort === 'undefined') {
+            throw new Error("ONNX Runtime Web が読み込まれていません。初回はオンライン環境でページを開いてください。");
+        }
+
+        // GitHub Pages（COOP/COEPヘッダなし環境）およびスマホ安定動作のためシングルスレッドWASMを使用
+        ort.env.wasm.wasmPaths = ORT_WASM_CDN;
+        ort.env.wasm.numThreads = 1;
+        ort.env.wasm.simd = true;
+
+        ortSession = await ort.InferenceSession.create(ONNX_MODEL_URL, {
+            executionProviders: ['wasm'],
+            graphOptimizationLevel: 'all'
+        });
+        return ortSession;
+    }
+
+    async function loadOnnxModel() {
+        const btn = document.getElementById('btnLoadModel');
+        btn.disabled = true;
+        btn.innerText = "⏳ YOLOXモデル読込中...";
+        statusText.innerText = "リポジトリ内の認識モデル (yolox_tiny_log.onnx) を読み込んでいます...";
+        statusText.style.color = "#00897b";
+        
+        try {
+            const t0 = performance.now();
+            await ensureOnnxSession();
+            const sec = ((performance.now() - t0) / 1000).toFixed(2);
+            
+            btn.innerText = "✅ 認識モデル準備完了 (YOLOX・上限1000本)";
+            btn.style.background = "#388e3c"; 
+            statusText.innerText = `YOLOX認識モデルの準備が完了しました（${sec}秒）。オフラインでも最大1000本まで検知可能です。`;
+            statusText.style.color = "#2e7d32";
+        } catch (error) {
+            console.error(error);
+            alert("モデル読込失敗: " + error.message);
+            statusText.innerText = "エラーが発生しました: " + error.message;
+            statusText.style.color = "#d32f2f";
+            btn.disabled = false;
+            btn.innerText = "📥 認識モデル読込（事前キャッシュ用）";
+        }
+    }
+
+    // YOLOX標準前処理：アスペクト比維持リサイズ（左上配置・余白114）-> NCHW BGR FP32 (0.0〜255.0)
+    function preprocessImageToTensor(srcCanvas) {
+        if (!prepCanvas) {
+            prepCanvas = document.createElement('canvas');
+            prepCanvas.width = MODEL_INPUT_SIZE;
+            prepCanvas.height = MODEL_INPUT_SIZE;
+        }
+        const prepCtx = prepCanvas.getContext('2d', { willReadFrequently: true });
+        const srcW = srcCanvas.width;
+        const srcH = srcCanvas.height;
+        const ratio = Math.min(MODEL_INPUT_SIZE / srcW, MODEL_INPUT_SIZE / srcH);
+        const resizedW = Math.round(srcW * ratio);
+        const resizedH = Math.round(srcH * ratio);
+
+        // 余白をYOLOX標準のグレー(114)で塗りつぶし、左上(0,0)に描画
+        prepCtx.fillStyle = 'rgb(114, 114, 114)';
+        prepCtx.fillRect(0, 0, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE);
+        prepCtx.imageSmoothingEnabled = true;
+        prepCtx.imageSmoothingQuality = 'high';
+        prepCtx.drawImage(srcCanvas, 0, 0, srcW, srcH, 0, 0, resizedW, resizedH);
+
+        const imgData = prepCtx.getImageData(0, 0, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE).data;
+        const area = MODEL_INPUT_SIZE * MODEL_INPUT_SIZE;
+        const floatData = new Float32Array(3 * area);
+
+        // YOLOXは BGR順 かつ 0〜255のまま入力（/255.0 は行わない）
+        for (let i = 0; i < area; i++) {
+            const p = i << 2;
+            floatData[i] = imgData[p + 2];            // B
+            floatData[area + i] = imgData[p + 1];     // G
+            floatData[2 * area + i] = imgData[p];     // R
+        }
+        return {
+            tensor: new ort.Tensor('float32', floatData, [1, 3, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE]),
+            ratio: ratio
+        };
+    }
+
+    function calcIoU(a, b) {
+        const interX1 = Math.max(a.x1, b.x1);
+        const interY1 = Math.max(a.y1, b.y1);
+        const interX2 = Math.min(a.x2, b.x2);
+        const interY2 = Math.min(a.y2, b.y2);
+        const interW = Math.max(0, interX2 - interX1);
+        const interH = Math.max(0, interY2 - interY1);
+        const interArea = interW * interH;
+        if (interArea <= 0) return 0;
+        const areaA = (a.x2 - a.x1) * (a.y2 - a.y1);
+        const areaB = (b.x2 - b.x1) * (b.y2 - b.y1);
+        return interArea / (areaA + areaB - interArea + 1e-6);
+    }
+
+    // YOLOX出力テンソル [1, 8400, 6] (cx, cy, w, h, obj_conf, cls_conf) をデコード＆NMS
+    function postprocessYoloxOutput(outputTensor, imgW, imgH, ratio, confThreshold) {
+        const data = outputTensor.data;
+        const dims = outputTensor.dims;
+        const numAnchors = dims[1];
+        const numProps = dims[2];
+        const numClasses = numProps - 5;
+
+        const boxes = [];
+        for (let i = 0; i < numAnchors; i++) {
+            const offset = i * numProps;
+            const objConf = data[offset + 4];
+            if (objConf < confThreshold) continue;
+
+            let bestClsConf = 0;
+            for (let c = 0; c < numClasses; c++) {
+                const s = data[offset + 5 + c];
+                if (s > bestClsConf) bestClsConf = s;
+            }
+            const score = objConf * bestClsConf;
+            if (score < confThreshold) continue;
+
+            const cx = data[offset];
+            const cy = data[offset + 1];
+            const bw = data[offset + 2];
+            const bh = data[offset + 3];
+
+            const x1 = Math.max(0, (cx - bw / 2) / ratio);
+            const y1 = Math.max(0, (cy - bh / 2) / ratio);
+            const x2 = Math.min(imgW, (cx + bw / 2) / ratio);
+            const y2 = Math.min(imgH, (cy + bh / 2) / ratio);
+
+            if ((x2 - x1) > 2 && (y2 - y1) > 2) {
+                boxes.push({ x1, y1, x2, y2, score });
+            }
+        }
+
+        // 信頼度降順でNMS（上限 MAX_OBJECTS 本）
+        boxes.sort((a, b) => b.score - a.score);
+        const kept = [];
+        for (let i = 0; i < boxes.length; i++) {
+            const curr = boxes[i];
+            let suppressed = false;
+            for (let j = 0; j < kept.length; j++) {
+                if (calcIoU(curr, kept[j]) > IOU_THRESHOLD) {
+                    suppressed = true;
+                    break;
+                }
+            }
+            if (!suppressed) {
+                kept.push(curr);
+                if (kept.length >= MAX_OBJECTS) break;
+            }
+        }
+        return kept;
+    }
+
+    async function runOnnxDetection() {
+        if (!originalImage) return alert("先に写真を読み込んでください");
+
+        await askResetIfNeeded();
+
+        const btn = document.getElementById('btnRunRoboflow');
+        btn.disabled = true;
+        btn.innerText = "⏳ 読込・解析中...";
+        statusText.innerText = "内蔵YOLOXモデルで解析しています...";
+        statusText.style.color = "#1565c0";
+        
+        resetDetection(); 
+
+        let inputTensor = null;
+        let results = null;
+        try {
+            const tStart = performance.now();
+            if (!ortSession) {
+                await ensureOnnxSession();
+                const loadBtn = document.getElementById('btnLoadModel');
+                loadBtn.innerText = "✅ 認識モデル準備完了 (YOLOX・上限1000本)";
+                loadBtn.style.background = "#388e3c";
+                loadBtn.disabled = true;
+            }
+
+            const selectedThreshold = parseFloat(document.getElementById('rfThresholdSelect')?.value) || 0.40;
+            const prep = preprocessImageToTensor(canvas);
+            inputTensor = prep.tensor;
+
+            const inputName = ortSession.inputNames[0] || 'images';
+            const outputName = ortSession.outputNames[0] || 'output';
+            results = await ortSession.run({ [inputName]: inputTensor });
+            const outputTensor = results[outputName];
+
+            const detections = postprocessYoloxOutput(outputTensor, canvas.width, canvas.height, prep.ratio, selectedThreshold);
+            const elapsedSec = ((performance.now() - tStart) / 1000).toFixed(2);
+
+            ctx.font = '16px Arial';
+            currentBoxes = detections.map(d => {
+                const boxX = d.x1;
+                const boxY = d.y1;
+                const boxW = d.x2 - d.x1;
+                const boxH = d.y2 - d.y1;
+                const text = `log ${Math.round(d.score * 100)}%`;
+                const textWidth = ctx.measureText(text).width;
+                return { x: boxX, y: boxY, w: boxW, h: boxH, text: text, textWidth: textWidth };
+            });
+
+            currentBoxes.forEach(b => drawBox(b, '#9932CC'));
+            calibArea.style.display = "block";
+            setBoxTapMode('select');
+            statusText.innerText = `✅ YOLOXで ${currentBoxes.length} 本検知しました（${elapsedSec}秒）。細かい箇所は「🔍 拡大」や「⚪️ 枠消しゴム」が使えます。`;
+            statusText.style.color = "#2e7d32";
+
+        } catch (error) {
+            console.error(error);
+            alert("モデル読込・解析失敗: " + error.message);
+            statusText.innerText = "エラーが発生しました: " + error.message;
+            statusText.style.color = "#d32f2f";
+        } finally {
+            if (inputTensor && typeof inputTensor.dispose === 'function') inputTensor.dispose();
+            if (results) {
+                Object.values(results).forEach(t => {
+                    if (t && typeof t.dispose === 'function') t.dispose();
+                });
+            }
+            btn.disabled = false;
+            btn.innerText = "⚡ AIで一括検知";
+        }
+    }
+
+    // ==========================================
+    // 描画・タップ判定（拡大対応 ＋ 基準選択 / なぞり消しゴム）ロジック
+    // ==========================================
+    function drawBox(box, color) {
+        ctx.strokeStyle = color; 
+        ctx.lineWidth = 3;
+        ctx.strokeRect(box.x, box.y, box.w, box.h);
+        ctx.fillStyle = color;
+        ctx.font = '16px Arial';
+        ctx.fillRect(box.x, box.y - 20, box.textWidth + 4, 20);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillText(box.text, box.x + 2, box.y - 5);
+    }
+
+    function getCanvasCoordsFromClient(clientX, clientY) {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        return {
+            x: (clientX - rect.left) * scaleX,
+            y: (clientY - rect.top) * scaleY
+        };
+    }
+
+    function findClosestBoxIndex(x, y) {
+        let clickedIndex = -1;
+        let minDistance = Infinity;
+        for (let i = 0; i < currentBoxes.length; i++) {
+            const box = currentBoxes[i];
+            if (x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h) {
+                const cx = box.x + box.w / 2;
+                const cy = box.y + box.h / 2;
+                const dist = Math.hypot(x - cx, y - cy);
+                if (dist < minDistance) {
+                    minDistance = dist;
+                    clickedIndex = i;
+                }
+            }
+        }
+        return clickedIndex;
+    }
+
+    function eraseBoxesAlongSegment(x1, y1, x2, y2, singleTargetOnly) {
+        if (currentBoxes.length === 0) return 0;
+
+        if (singleTargetOnly) {
+            const idx = findClosestBoxIndex(x2, y2);
+            if (idx !== -1) {
+                const removed = currentBoxes.splice(idx, 1)[0];
+                currentEraseStroke.push(removed);
+                return 1;
+            }
+            return 0;
+        }
+
+        const dist = Math.hypot(x2 - x1, y2 - y1);
+        const steps = Math.max(1, Math.ceil(dist / 10));
+        let erasedNow = 0;
+
+        for (let s = 1; s <= steps; s++) {
+            const t = s / steps;
+            const px = x1 + (x2 - x1) * t;
+            const py = y1 + (y2 - y1) * t;
+
+            for (let i = currentBoxes.length - 1; i >= 0; i--) {
+                const box = currentBoxes[i];
+                if (px >= box.x && px <= box.x + box.w && py >= box.y && py <= box.y + box.h) {
+                    const removed = currentBoxes.splice(i, 1)[0];
+                    currentEraseStroke.push(removed);
+                    erasedNow++;
+                }
+            }
+        }
+        return erasedNow;
+    }
+
+    function refreshAfterErase() {
+        restoreCleanImage();
+        currentBoxes.forEach(b => drawBox(b, '#9932CC'));
+        statusText.innerText = `⚪️ ${currentEraseStroke.length}本消去中（残り ${currentBoxes.length} 本）`;
+        statusText.style.color = "#d32f2f";
+        document.getElementById('calibMsg').innerHTML = `⚪️ <b>枠消しゴムモード中</b>（残り <b>${currentBoxes.length} 本</b>）<br>不要な枠をタップ、または<b>指でなぞって一括消去</b>できます。終わったら「👆 基準枠を選択」に戻してください。`;
+    }
+
+    canvas.addEventListener('pointerdown', (e) => {
+        if (currentBoxes.length === 0 || isCalculated) return;
+        if (e.button !== undefined && e.button !== 0 && e.pointerType === 'mouse') return;
+
+        isPointerDown = true;
+        activePointerId = e.pointerId;
+        pointerDownClientX = e.clientX;
+        pointerDownClientY = e.clientY;
+
+        if (boxTapMode === 'eraser') {
+            e.preventDefault();
+            try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+            currentEraseStroke = [];
+            const pos = getCanvasCoordsFromClient(e.clientX, e.clientY);
+            lastEraseCanvasPos = pos;
+
+            const erased = eraseBoxesAlongSegment(pos.x, pos.y, pos.x, pos.y, true);
+            if (erased > 0) {
+                refreshAfterErase();
+            }
+        }
+    });
+
+    canvas.addEventListener('pointermove', (e) => {
+        if (!isPointerDown || e.pointerId !== activePointerId) return;
+        if (boxTapMode !== 'eraser' || isCalculated) return;
+
+        e.preventDefault();
+        const pos = getCanvasCoordsFromClient(e.clientX, e.clientY);
+        const prev = lastEraseCanvasPos || pos;
+        const erased = eraseBoxesAlongSegment(prev.x, prev.y, pos.x, pos.y, false);
+        lastEraseCanvasPos = pos;
+
+        if (erased > 0) {
+            refreshAfterErase();
+        }
+    });
+
+    function finishPointerInteraction(e) {
+        if (!isPointerDown || e.pointerId !== activePointerId) return;
+        isPointerDown = false;
+        activePointerId = null;
+
+        if (boxTapMode === 'eraser') {
+            lastEraseCanvasPos = null;
+            if (currentEraseStroke.length > 0) {
+                const countInStroke = currentEraseStroke.length;
+                deletedBoxesHistory.push([...currentEraseStroke]);
+                currentEraseStroke = [];
+                document.getElementById('btnUndoBox').disabled = false;
+                statusText.innerText = `⚪️ ${countInStroke}本消去しました（残り ${currentBoxes.length} 本）。続けてタップやなぞりで消去できます。`;
+                statusText.style.color = "#d32f2f";
+            }
+        } else if (boxTapMode === 'select' && e.type === 'pointerup') {
+            const moveDist = Math.hypot(e.clientX - pointerDownClientX, e.clientY - pointerDownClientY);
+            if (moveDist < 14 && currentBoxes.length > 0 && !isCalculated) {
+                const pos = getCanvasCoordsFromClient(e.clientX, e.clientY);
+                const clickedIndex = findClosestBoxIndex(pos.x, pos.y);
+                if (clickedIndex !== -1) {
+                    const clickedBox = currentBoxes[clickedIndex];
+                    restoreCleanImage();
+                    currentBoxes.forEach(b => drawBox(b, '#9932CC'));
+                    drawBox(clickedBox, '#e65100'); 
+                    setTimeout(() => openDiaModal(clickedBox), 50);
+                }
+            }
+        }
+    }
+
+    canvas.addEventListener('pointerup', finishPointerInteraction);
+    canvas.addEventListener('pointercancel', finishPointerInteraction);
+
+    function openDiaModal(box) {
+        selectedBoxForCalc = box;
+        syncQuickLengthButtons();
+        document.getElementById('diameterModal').style.display = 'block';
+    }
+
+    function closeDiaModal() {
+        document.getElementById('diameterModal').style.display = 'none';
+        selectedBoxForCalc = null;
+        restoreCleanImage();
+        currentBoxes.forEach(b => drawBox(b, '#9932CC'));
+    }
+
+    function confirmDiameter() {
+        const treeType = document.getElementById('m_treeType').value || "スギ";
+        const lengthVal = parseFloat(document.getElementById('m_length').value);
+        if (!lengthVal || lengthVal <= 0) {
+            alert("正しい材長(m)を入力してください");
+            return;
+        }
+
+        const selectVal = document.getElementById('diaSelect').value;
+        let realSizeCm = parseFloat(selectVal === 'manual' ? document.getElementById('manualDiaInput').value : selectVal);
+        if(!realSizeCm || realSizeCm <= 0) {
+            alert("正しい末口直径(cm)を入力してください");
+            return;
+        }
+
+        const useRound2cm = document.getElementById('round2cmCheck').checked;
+        saveLastParams(treeType, lengthVal, selectVal, useRound2cm);
+        document.getElementById('diameterModal').style.display = 'none';
+        calculateAllLogs(selectedBoxForCalc, realSizeCm, treeType, lengthVal, useRound2cm);
+    }
+
+    // 短径（枠の縦横で短い方）＋ ２㎝括約（切り捨て）対応
+    function calculateAllLogs(baseBox, realSizeCm, treeType, length, useRound2cm) {
+        resetZoom();
+        const baseShortPx = Math.min(baseBox.w, baseBox.h);
+        const pxPerCm = baseShortPx / realSizeCm;
+        
+        let addedCount = 0;
+        let addedVolume = 0; 
+        
+        const list = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+        
+        restoreCleanImage(); 
+
+        currentBoxes.forEach(box => {
+            const boxShortPx = Math.min(box.w, box.h);
+            const rawDia = boxShortPx / pxPerCm;
+            let estDia;
+            if (useRound2cm) {
+                estDia = rawDia < 2 ? 1 : Math.floor((rawDia + 1e-6) / 2) * 2;
+            } else {
+                estDia = Math.max(1, Math.round(rawDia));
+            }
+
+            let vol = calculateVolume(estDia, length);
+            list.unshift({ id: Date.now() + Math.random(), tree: treeType, length: length, diameter: estDia, volume: vol, memo: 'AI推定(YOLOX)' });
+            
+            addedCount++;
+            addedVolume += vol; 
+            
+            const cx = box.x + box.w / 2;
+            const cy = box.y + box.h / 2;
+            drawDotAndText(cx, cy, estDia, '#39ff14'); 
+        });
+
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+        renderTable();
+        isCalculated = true; 
+        calibArea.style.display = "none";
+        document.getElementById('btnUndoBox').disabled = true;
+        
+        showSavePreview(addedCount, addedVolume);
+    }
+
+    function calculateVolume(dia, len) {
+        let vol = len < 6 ? (dia * dia * len) / 10000 : (Math.pow(dia + (Math.floor(len) - 4) / 2, 2) * len) / 10000;
+        return Math.round(vol * 1000) / 1000;
+    }
+
+    function drawDotAndText(x, y, text, dotColor) {
+        ctx.beginPath();
+        ctx.arc(x, y, 6, 0, 2 * Math.PI);
+        ctx.fillStyle = dotColor; ctx.fill();
+        ctx.lineWidth = 2; ctx.strokeStyle = '#000000'; ctx.stroke();
+        ctx.fillStyle = '#FFFFFF'; ctx.font = 'bold 18px Arial';
+        ctx.lineWidth = 3; ctx.strokeText(`${text}`, x + 8, y + 6); ctx.fillText(`${text}`, x + 8, y + 6);
+    }
+
+    // ==========================================
+    // 保存プレビューとネイティブ共有
+    // ==========================================
+    function showSavePreview(count, volume) {
+        statusText.innerText = "画像を生成中...";
+        
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (position) => { generateImage(position.coords.latitude.toFixed(5), position.coords.longitude.toFixed(5), count, volume); },
+                (error) => { generateImage(null, null, count, volume); },
+                { timeout: 5000 }
+            );
+        } else {
+            generateImage(null, null, count, volume);
+        }
+    }
+
+    function generateImage(lat, lon, count, volume) {
+        const offCanvas = document.createElement('canvas');
+        offCanvas.width = canvas.width;
+        offCanvas.height = canvas.height;
+        const offCtx = offCanvas.getContext('2d');
+
+        offCtx.drawImage(canvas, 0, 0);
+
+        const timeStr = new Date().toLocaleString('ja-JP');
+        
+        const list = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+        let totalCount = 0;
+        let totalVolume = 0;
+        list.forEach(item => {
+            totalCount++;
+            totalVolume += item.volume;
+        });
+
+        const volStr = totalVolume.toFixed(3);
+
+        offCtx.fillStyle = "rgba(0,0,0,0.6)";
+        offCtx.fillRect(10, offCanvas.height - 105, 400, 95);
+        offCtx.fillStyle = "#FFFFFF";
+        offCtx.font = "16px Arial";
+        
+        offCtx.fillText(`撮影日時: ${timeStr}`, 20, offCanvas.height - 80);
+        if (lat && lon) {
+            offCtx.fillText(`位置情報: Lat ${lat}, Lon ${lon}`, 20, offCanvas.height - 55);
+        } else {
+            offCtx.fillText(`位置情報: 取得できませんでした`, 20, offCanvas.height - 55);
+        }
+        offCtx.fillText(`検知結果: ${totalCount}本 / 材積合計: ${volStr} m3`, 20, offCanvas.height - 30);
+
+        previewDataUrl = offCanvas.toDataURL('image/jpeg', 0.9);
+        document.getElementById('previewImg').src = previewDataUrl;
+        document.getElementById('savePreviewModal').style.display = 'block';
+        
+        statusText.innerText = `✅ ${count}本を保存しました！（累計: ${totalCount}本 / ${volStr}m3）`;
+    }
+
+    function closeSaveModal() {
+        document.getElementById('savePreviewModal').style.display = 'none';
+    }
+
+    async function downloadImage() {
+        if (!previewDataUrl) return;
+        const fileName = `丸太検尺_${Date.now()}.jpg`;
+
+        const arr = previewDataUrl.split(',');
+        const mime = arr[0].match(/:(.*?);/)[1];
+        const bstr = atob(arr[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) { u8arr[n] = bstr.charCodeAt(n); }
+        const blob = new Blob([u8arr], { type: mime });
+        const file = new File([blob], fileName, { type: mime });
+
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            try {
+                await navigator.share({ files: [file], title: '丸太検尺画像', text: '検知結果の画像です' });
+                closeSaveModal();
+                return;
+            } catch (error) { console.log('Share canceled or failed', error); }
+        }
+
+        const link = document.createElement('a');
+        link.download = fileName;
+        link.href = previewDataUrl;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        alert("画像を保存しました！");
+        closeSaveModal();
+    }
+
+    // ==========================================
+    // テーブル操作周り
+    // ==========================================
+    function renderTable() {
+        const list = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+        const tbody = document.querySelector('#dataTable tbody');
+        tbody.innerHTML = '';
+        let totalC = 0, totalV = 0;
+        list.forEach(item => {
+            totalC++; totalV += item.volume;
+            tbody.innerHTML += `<tr><td>${item.tree}</td><td>${item.length}</td><td>${item.diameter}</td><td>${item.volume.toFixed(3)}</td><td><button class="btn-del" onclick="deleteItem(${item.id})">×</button></td></tr>`;
+        });
+        document.getElementById('totalCount').innerText = totalC;
+        document.getElementById('totalVolume').innerText = totalV.toFixed(3);
+    }
+    function deleteItem(id) {
+        if(!confirm("削除しますか？")) return;
+        let list = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(list.filter(i => i.id !== id)));
+        renderTable();
+    }
+    function handleAllClear() {
+        const list = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+        if (list.length === 0) {
+            alert("現在保存されている材積内訳データはありません。");
+            return;
+        }
+        document.getElementById('existingDataCount').innerText = list.length;
+        document.getElementById('resetConfirmModal').style.display = 'block';
+        resetModalCallback = (shouldReset) => {
+            if (shouldReset) {
+                statusText.innerText = "🗑️ 過去の材積内訳データをリセットしました。";
+                statusText.style.color = "#d32f2f";
+            }
+        };
+    }
+    function openSettings() {
+        for(let i=1; i<=5; i++){ document.getElementById(`customTree${i}`).value = currentSettings.customTrees[i-1] || ""; }
+        document.getElementById('settingsModal').style.display = 'block';
+    }
+    function closeSettings() { document.getElementById('settingsModal').style.display = 'none'; }
+    function saveSettings() {
+        let newTrees = [];
+        for(let i=1; i<=5; i++){
+            const val = document.getElementById(`customTree${i}`).value.trim();
+            if(val) newTrees.push(val);
+        }
+        currentSettings.customTrees = newTrees;
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(currentSettings));
+        updateTreeSelectors();
+        closeSettings();
+    }
+    function loadSettings() {
+        const saved = localStorage.getItem(SETTINGS_KEY);
+        if(saved) currentSettings = JSON.parse(saved);
+        updateTreeSelectors();
+    }
+    function updateTreeSelectors() {
+        const options = [...DEFAULT_TREES, ...currentSettings.customTrees];
+        document.querySelectorAll('.tree-selector').forEach(sel => {
+            const currentVal = sel.value;
+            sel.innerHTML = "";
+            options.forEach(t => sel.appendChild(new Option(t, t)));
+            if(options.includes(currentVal)) sel.value = currentVal;
+        });
+    }
+    function handleExport() {
+        const list = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+        if(list.length === 0) return alert("データがありません");
+        let csv = "\ufeff樹種,材長,末口直径,材積,備考\n";
+        list.forEach(i => csv += `${i.tree},${i.length},${i.diameter},${i.volume},${i.memo || ''}\n`);
+        const a = document.createElement("a");
+        const now = new Date();
+        a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+        a.download = `丸太検知-yolox-${now.getFullYear()}${(now.getMonth()+1).toString().padStart(2,'0')}${now.getDate().toString().padStart(2,'0')}-${now.getHours().toString().padStart(2,'0')}${now.getMinutes().toString().padStart(2,'0')}.csv`;
+        a.click();
+    }
+</script>
+</body>
+</html>
